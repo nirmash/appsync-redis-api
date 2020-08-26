@@ -1,0 +1,116 @@
+<head>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs=" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+</head>
+
+<div class="container">
+    <div class="row">
+        <div class="col-sm" style="text-align: left;">
+            <h3>GraphQL Redis client Demo</h3>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-sm" style="text-align: left;">
+            <p>
+                <label>GraphQL API Uri:</label><input id="gql_uri" class="form-control" type="text" value="GraphQL API Uri">
+            </p>
+            <p>
+                <label>GraphQL API Key:</label><input id="gql_key" class="form-control" type="text" value="GraphQL API Key">
+            </p>
+            <p>
+                <button id="gql_redis_connect" type="button" class="btn btn-primary">Connect</button>
+            </p>
+            <p>
+                <textarea class="form-control" id="cli_text" rows="18" style="background-color:black;color:white"></textarea>
+            </p>
+        </div>
+    </div>
+    </div>
+  </div>
+<script>
+
+function send_command(cmd, eventType){
+    const request = new XMLHttpRequest();
+    const base_url=$("#gql_uri")[0].value;
+    const gql_key=$("#gql_key")[0].value;
+    request.open("POST", base_url);
+    request.setRequestHeader("Content-Type","application/graphql");
+    request.setRequestHeader("x-api-key",gql_key);
+    request.send(cmd);
+
+    request.onreadystatechange = function() {
+        if (this.readyState == 4) {
+            update_textArea(JSON.parse(this.responseText).data.getRedis,eventType);
+        }
+    };
+}
+
+function make_graphQL_command(txtVal){
+    var innerStr = "query { getRedis(Command: ##token## ) }";
+    var res = txtVal.split(" ");
+    var innerObj = JSON.stringify(innerStr.replace("##token##",JSON.stringify(res)));
+    var mtstr = '{ "query" : ##token## }'
+    mtstr = mtstr.replace("##token##",innerObj);
+    return mtstr;
+}
+
+function update_textArea(inputText, eventType){
+    const strServer = ">>"
+    const curText = $("#cli_text").val();
+    if(inputText == null)
+        inputText=["(err)"]
+    if(inputText.length==0)
+        inputText[0]="(err)";
+    switch (eventType) {
+        case "Connect": {
+            $("#cli_text").val(strServer);
+            break;
+        }
+        case "Command": {
+            var valStr = "";
+            for(ii=0;ii<inputText.length;ii++){
+               valStr = valStr + inputText[ii] + "\n";
+            }
+            $("#cli_text").val(curText + valStr + strServer);
+            break;
+        }
+        case "NewLine":{
+            $("#cli_text").val(curText + strServer);
+            break;
+        }
+        
+    }
+
+}
+
+$("#gql_redis_connect").click(
+    function(){
+        send_command(make_graphQL_command("ping"),"Connect");
+    }
+);
+
+
+$("#cli_text").keyup(function(event) {
+    if (event.which == 13 || event.which == 27) {
+        lines = $("#cli_text").val().toString().split("\n");
+        if(lines.length>1){
+            currLine = lines[lines.length-2].toString();
+            currLine = currLine.substring(2);
+            if(currLine.toLowerCase()=="clear"){
+                send_command(make_graphQL_command("ping"),"Connect");
+                event.preventDefault();
+                return;
+            }
+            if(currLine.length < 3){
+                update_textArea("","NewLine")
+            }
+            else{
+                send_command(make_graphQL_command(currLine),"Command");
+            }
+        }
+    } 
+    event.preventDefault();
+}
+);
+</script>   
+

@@ -1,0 +1,312 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GraphQL Redis Query API
+Globals:
+  Function:
+    Timeout: 5
+
+Parameters:
+  RedisGraphQLApiName:
+    Type: String
+    Default: Redis-GraphQL-Api
+
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: '10.0.0.0/16'
+    Private1:
+      CIDR: '10.0.0.0/24'
+    Private2:
+      CIDR: '10.0.1.0/24'
+    Lambda1:
+      CIDR: '10.0.2.0/24'
+    Lambda2:
+      CIDR: '10.0.3.0/24'
+    Public1:
+      CIDR: '10.0.4.0/24'
+
+Resources:
+
+  ## ElastiCache ##
+  RedisCluster:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      AutoMinorVersionUpgrade: true
+      ReplicationGroupId: !Sub "${RedisGraphQLApiName}-cluster"
+      # enable Cluster Mode
+      CacheParameterGroupName: default.redis5.0
+      CacheNodeType: cache.t3.medium
+      CacheSubnetGroupName:  !Ref RedisSubnetGroup
+      Engine: redis
+      EngineVersion: 5.0.6
+      NumNodeGroups: 1
+      Port: 6379
+      ReplicasPerNodeGroup: 1
+      ReplicationGroupDescription: !Sub "${RedisGraphQLApiName}-Redis-Replication-Group"
+      SecurityGroupIds:
+        - !Ref RedisSecurityGroup
+      Tags:
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Redis subnet group
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Enable Redis access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref EC2InstanceSecurityGroup          
+      Tags:
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+
+  ## VPC ##
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap ['SubnetConfig', 'VPC', 'CIDR']
+      Tags:
+        - Key: Name
+          Value: !Sub "${RedisGraphQLApiName}-vpc"
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+
+  EC2InstanceInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: name
+        Value: !Sub "${RedisGraphQLApiName}-ig"
+  
+  EC2InstanceAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: EC2InstanceInternetGateway
+  
+  EC2InstanceRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${RedisGraphQLApiName}-rt"
+  
+  EC2InstanceRouteTableRoute:
+    Type: AWS::EC2::Route
+    DependsOn: EC2InstanceAttachGateway
+    Properties:
+      RouteTableId:
+        Ref: EC2InstanceRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: EC2InstanceInternetGateway
+          
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region      
+      CidrBlock: !FindInMap ['SubnetConfig', 'Public1', 'CIDR']
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: !Sub "${RedisGraphQLApiName}-public-subnet-1"
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+      VpcId: !Ref VPC
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref EC2InstanceRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      VpcId: !Ref VPC
+      CidrBlock:  !FindInMap ['SubnetConfig', 'Private1', 'CIDR']
+      Tags:
+        - Key: Name
+          Value: !Sub "${RedisGraphQLApiName}-private-subnet-1"
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      VpcId: !Ref VPC
+      CidrBlock:  !FindInMap ['SubnetConfig', 'Private2', 'CIDR']
+      Tags:
+        - Key: Name
+          Value: !Sub "${RedisGraphQLApiName}-private-subnet-2"
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName
+
+  RedisExecuteCommand:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: redis_execute_command/
+      Handler: app.lambda_handler
+      Runtime: python3.8      
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - VPCAccessPolicy: {}
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref EC2InstanceSecurityGroup 
+        SubnetIds: 
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
+      Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
+        Variables:
+          REDIS_MASTER_HOST: !GetAtt RedisCluster.PrimaryEndPoint.Address                            
+          REDIS_MASTER_PORT: 6379
+  awsAppSyncServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "appsync.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+  lambdaAccessPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "DirectAppSyncLambda"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "lambda:invokeFunction"
+            Resource:
+              - 
+                !GetAtt RedisExecuteCommand.Arn
+      Roles:
+        -
+          Ref: "awsAppSyncServiceRole"
+  RedisQueryApi:
+    Type: "AWS::AppSync::GraphQLApi"
+    Properties:
+      Name: !Sub "${RedisGraphQLApiName}-AppSync"
+      AuthenticationType: "API_KEY"
+  RedisQueryApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt RedisQueryApi.ApiId
+  RedisQueryApiSchema:
+    Type: "AWS::AppSync::GraphQLSchema"
+    Properties:
+      ApiId: !GetAtt RedisQueryApi.ApiId
+      Definition: |
+        type Mutation {
+          # Send an array of Redis commands and parameters to be executed together
+          putRedis(Command: [[String!]]): String
+        }
+
+        type Query {
+          # Send a single Redis command to fetch and array of items back
+          getRedis(Command: [String!]): [String]
+        }
+
+        schema {
+          query: Query
+          mutation: Mutation
+        }
+  RedisExecuteCommandDataSource:
+    Type: "AWS::AppSync::DataSource"
+    Properties:
+      ApiId: !GetAtt RedisQueryApi.ApiId
+      Name: "RedisGraphQL"
+      Type: "AWS_LAMBDA"
+      ServiceRoleArn: !GetAtt awsAppSyncServiceRole.Arn
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt RedisExecuteCommand.Arn
+  RedisExecutePutResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: RedisQueryApiSchema
+    Properties:
+      ApiId: !GetAtt RedisQueryApi.ApiId
+      TypeName: Mutation
+      FieldName: putRedis
+      DataSourceName: !GetAtt RedisExecuteCommandDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "query": "RedisSet",
+            "context": $utils.toJson($context)
+          }
+        }
+  RedisExecuteGetResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: RedisQueryApiSchema
+    Properties:
+      ApiId: !GetAtt RedisQueryApi.ApiId
+      TypeName: Query
+      FieldName: getRedis
+      DataSourceName: !GetAtt RedisExecuteCommandDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "query": "RedisGet",
+            "context": $utils.toJson($context)
+          }
+        }
+  EC2InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: EC2 Security Group
+      SecurityGroupIngress:
+         - IpProtocol: tcp
+           CidrIp: 0.0.0.0/0
+           FromPort: 6379
+           ToPort: 6379
+      Tags:
+        - Key: Project
+          Value: !Ref RedisGraphQLApiName 
+
+Outputs:
+  RedisQueryAPI:
+    Value: !GetAtt RedisQueryApi.Arn
+  RedisExecuteCommand:
+    Value: !GetAtt RedisExecuteCommand.Arn
