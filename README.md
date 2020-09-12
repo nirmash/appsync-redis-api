@@ -2,7 +2,7 @@
 
 This repo includes a SAM template and Lambda function that setup an AppSync API in-front of an Amazon [ElastiCache for Redis](https://aws.amazon.com/elasticache/redis/) cluster.
 
-![architecture](https://raw.githubusercontent.com/nirmash/appsync-redis-api/master/AppSyncBlog.jpg?token=AAKPFPWY4CMRQ6BYT4G2NAK7JXPSE)
+![architecture](https://github.com/nirmash/appsync-redis-api/blob/master/AppSyncBlog.jpg?raw=true)
 
 ## Requirements
 
@@ -87,17 +87,17 @@ $ aws appsync list-graphql-apis
 ```
 Copy the `"apiId"` from the command output. To obtain the API Key, call another aws cli command. Also, copy the value of the `"GRAPHQL"` uri endpoint for later use.
 
-```shell
+```shell 
 $ aws appsync list-api-keys --api-id <your api Id>
 ```
 Copy the `"id"` value from the command output. You now have what you need to test your new API. 
 The image below shows the steps in a terminal window. 
 
-![terminal window](https://raw.githubusercontent.com/nirmash/appsync-redis-api/master/cli-api-ids.jpg?token=AAKPFPTCER3H3LXFSH2K7FS7J7LBY)
+![terminal window](https://github.com/nirmash/appsync-redis-api/blob/master/cli-api-ids.jpg?raw=true)
 
 To make testing easier this repo includes a simple HTML test client that attempts to emulate the redis-cli. To get it to work, just double-click the `index.html` file in the root directory of the repo. Paste the GraphQL uri endpoint and API key you saved earlier into the HTML form and hit the connect button, once connected, `>>` will appear in the cli text area. You can now use some Redis commands to communicate with ElastiCache for Redis!
 
-![cli client](https://raw.githubusercontent.com/nirmash/appsync-redis-api/master/redisHTMLClient.jpg?token=AAKPFPQDXOBF7QRZKHYDG227J6ZY2)
+![cli client](https://github.com/nirmash/appsync-redis-api/blob/master/redisHTMLClient.jpg?raw=true)
 
 ## Clean-up
 You can use the AWS cloud formation CLI to remove the cloud components you deployed with SAM. 
