@@ -25,15 +25,17 @@ def lambda_handler(event, context):
         retVal = formatRedisReply(r.execute_command(sCMD))
     #Close the Redis connection 
     r.close()
-    return "{0}: {1}".format(end_timer(),retVal)
+    return retVal
 
 
 def formatRedisReply(redisReply):
     if isinstance(redisReply,list):
+        redisReply.append(end_timer())
         return redisReply
     else:
         retArr=[]
-        retArr.append(redisReply)        
+        retArr.append(redisReply) 
+        retArr.append(end_timer())       
         return retArr
 
 def makeArgStr(arr):
