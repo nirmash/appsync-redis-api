@@ -1,8 +1,10 @@
 import redis
 import os
+import datetime
 
 def lambda_handler(event, context):
     #Check whether we are reading or writing
+    start_timer()
     commandType = event["query"]
     retVal = []
     #Connect to Redis
@@ -23,7 +25,7 @@ def lambda_handler(event, context):
         retVal = formatRedisReply(r.execute_command(sCMD))
     #Close the Redis connection 
     r.close()
-    return retVal
+    return "{0}: {1}".format(end_timer(),retVal)
 
 
 def formatRedisReply(redisReply):
@@ -43,4 +45,13 @@ def makeArgStr(arr):
 def get_redis_client():
     return redis.Redis(host=os.getenv('REDIS_MASTER_HOST'), port=os.getenv('REDIS_MASTER_PORT'), db=0, decode_responses=True)
 
+def start_timer():
+
+    global start_time_value
+    start_time_value = datetime.datetime.now()
+
+def end_timer():
+
+    delta = datetime.datetime.now() - start_time_value
+    return (delta.microseconds / 1000)
     
